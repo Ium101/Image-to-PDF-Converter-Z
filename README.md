@@ -1,4 +1,4 @@
-# img2pdf — Conversor de Imagens para PDF
+# Img2Pdf — Conversor de Imagens para PDF
 
 Converta **PNG, JPG, BMP, GIF, TIFF e WEBP** em PDF com uma interface gráfica moderna.
 Distribuído como executável único — sem necessidade de instalar Python.
