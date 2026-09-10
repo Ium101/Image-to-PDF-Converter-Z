@@ -1,32 +1,42 @@
 #!/bin/bash
 
-EXEC_NAME="IMG2PDF_Z"
+SCRIPT_NAME="img2pdf.py"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
 APP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons"
 DESKTOP_DIR=$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")
 DESKTOP_FILE_NAME="img2pdf_z.desktop"
-SCRIPT_NAME="img2pdf.py"
 
 echo "======================================================"
-echo "  IMG2PDF Z — Build do executável Linux"
+echo "  IMG2PDF Z — Instalação no Linux"
 echo "======================================================"
 
-if [ ! -f "$SCRIPT_DIR/$SCRIPT_NAME" ]; then
+if [ ! -f "$SCRIPT_PATH" ]; then
     echo "❌ Erro: $SCRIPT_NAME não encontrado em $SCRIPT_DIR"
     exit 1
 fi
 
 mkdir -p "$APP_DIR" "$DESKTOP_DIR" "$ICON_DIR"
 
+# ── CHECK PYTHON ──────────────────────────────────────────────────────────────
+if ! command -v python3 &>/dev/null; then
+    echo "❌ Erro: python3 não encontrado. Instale o Python 3 antes de continuar."
+    exit 1
+fi
+
 # ── INSTALL DEPENDENCIES ──────────────────────────────────────────────────────
 echo "📦 Verificando dependências..."
-pip install pillow pyinstaller --break-system-packages -q 2>/dev/null || \
-    pip install pillow pyinstaller -q 2>/dev/null || true
+pip install pillow --break-system-packages -q 2>/dev/null || \
+    pip install pillow -q 2>/dev/null || true
 
-# ── CLEAN OLD BUILDS ─────────────────────────────────────────────────────────
-echo "🧹 Limpando builds anteriores..."
-rm -rf "$SCRIPT_DIR/build/" "$SCRIPT_DIR/__pycache__/"
+# ── MAKE THE SCRIPT DIRECTLY LAUNCHABLE ───────────────────────────────────────
+echo "🔧 Tornando o script executável..."
+chmod +x "$SCRIPT_PATH"
+
+# ── CLEAN OLD CACHE ───────────────────────────────────────────────────────────
+echo "🧹 Limpando cache antigo..."
+rm -rf "$SCRIPT_DIR/__pycache__/"
 
 # ── EMBED ICON (SVG) ─────────────────────────────────────────────────────────
 echo "🖼️ Instalando ícone..."
@@ -60,27 +70,13 @@ cat > "$ICON_DIR/img2pdf_z.svg" << 'SVGEOF'
 </svg>
 SVGEOF
 
-# ── BUILD EXECUTABLE ─────────────────────────────────────────────────────────
-echo "⚙️ Compilando com PyInstaller..."
-python3 -m PyInstaller --onefile --windowed \
-    --name "$EXEC_NAME" \
-    --distpath "$SCRIPT_DIR" \
-    --workpath "$SCRIPT_DIR/build" \
-    --specpath "$SCRIPT_DIR" \
-    "$SCRIPT_DIR/$SCRIPT_NAME"
-
-if [ $? -ne 0 ]; then
-    echo "❌ Build falhou."
-    exit 1
-fi
-
-# ── DESKTOP FILE ─────────────────────────────────────────────────────────────
+# ── DESKTOP FILE (points straight at the .py script) ──────────────────────────
 echo "🖥️ Registrando no menu do sistema..."
 cat > "$APP_DIR/$DESKTOP_FILE_NAME" << DESKTOPEOF
 [Desktop Entry]
 Name=IMG2PDF Z
 Comment=Convert images to PDF / Converter imagens para PDF
-Exec=$SCRIPT_DIR/$EXEC_NAME
+Exec=python3 "$SCRIPT_PATH"
 Icon=$ICON_DIR/img2pdf_z.svg
 Terminal=false
 Type=Application
@@ -109,14 +105,10 @@ elif command -v kbuildsycoca5 &>/dev/null; then
     kbuildsycoca5 &>/dev/null
 fi
 
-# ── CLEAN UP BUILD ARTIFACTS ─────────────────────────────────────────────────
-echo "🧹 Removendo arquivos temporários..."
-rm -rf "$SCRIPT_DIR/build/" "$SCRIPT_DIR/${EXEC_NAME}.spec"
-
 echo ""
 echo "======================================================"
 echo "  ✅ Concluído!"
-echo "     Executável: $SCRIPT_DIR/$EXEC_NAME"
+echo "     Script:     $SCRIPT_PATH"
 echo "     Ícone:      $ICON_DIR/img2pdf_z.svg"
 echo "     Menu:       $APP_DIR/$DESKTOP_FILE_NAME"
 echo "     Desktop:    $DESKTOP_DIR/$DESKTOP_FILE_NAME"

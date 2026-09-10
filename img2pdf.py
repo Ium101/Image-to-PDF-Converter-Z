@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Img2Pdf - Image to PDF Converter / Conversor de Imagens para PDF
 Supports / Suporta: PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP
