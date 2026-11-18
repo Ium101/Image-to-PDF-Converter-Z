@@ -6,7 +6,7 @@ SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
 APP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons"
 DESKTOP_DIR=$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")
-DESKTOP_FILE_NAME="img2pdf_z.desktop"
+DESKTOP_FILE_NAME="Img2PdfZ.desktop"
 
 echo "======================================================"
 echo "  IMG2PDF Z — Instalação no Linux"
