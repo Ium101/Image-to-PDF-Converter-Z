@@ -9,6 +9,7 @@ from tkinter import ttk, filedialog, messagebox
 import os
 import sys
 import threading
+import subprocess
 import configparser
 from PIL import Image
 import io
@@ -102,6 +103,7 @@ STRINGS = {
         "margin_lbl":       "Margem (pt)",
         "one_per_page":     "Uma imagem por página",
         "add_images_btn":   "➕  Adicionar imagens",
+        "btn_add":          "➕ Adicionar",
         "list_hdr":         "📋  Imagens selecionadas",
         "files_count":      "{n} arquivo(s)",
         "btn_up":           "▲ Subir",
@@ -109,6 +111,7 @@ STRINGS = {
         "btn_remove":       "✕ Remover",
         "btn_clear":        "🗑 Limpar",
         "ready":            "Pronto.",
+        "files_added":      "{n} imagem(ns) adicionada(s). Clique em um dos botões abaixo para iniciar.",
         "btn_png2jpg":      "🎨  PNG → JPG",
         "btn_via_jpg":      "📦  PNG → JPG → PDF\n(menor tamanho)",
         "btn_each_pdf":     "📄  Cada imagem\n→ PDF separado",
@@ -159,6 +162,7 @@ STRINGS = {
         "margin_lbl":       "Margin (pt)",
         "one_per_page":     "One image per page",
         "add_images_btn":   "➕  Add images",
+        "btn_add":          "➕ Add",
         "list_hdr":         "📋  Selected images",
         "files_count":      "{n} file(s)",
         "btn_up":           "▲ Up",
@@ -166,6 +170,7 @@ STRINGS = {
         "btn_remove":       "✕ Remove",
         "btn_clear":        "🗑 Clear",
         "ready":            "Ready.",
+        "files_added":      "{n} image(s) added. Click one of the buttons below to start.",
         "btn_png2jpg":      "🎨  PNG → JPG",
         "btn_via_jpg":      "📦  PNG → JPG → PDF\n(smaller size)",
         "btn_each_pdf":     "📄  Each image\n→ separate PDF",
@@ -208,9 +213,10 @@ _AUTO_LABELS = {"Automático", "Automatic"}
 class DragListbox(tk.Frame):
     """Image list with reorder buttons. Supports live language + theme switching."""
 
-    def __init__(self, master, get_S, get_P, **kw):
+    def __init__(self, master, get_S, get_P, on_add=None, **kw):
         self._get_S = get_S
         self._get_P = get_P
+        self._on_add = on_add
         P = get_P()
         kw.setdefault("bg", P["SURFACE"])
         kw.setdefault("highlightthickness", 0)
@@ -244,6 +250,7 @@ class DragListbox(tk.Frame):
 
         self._btn_row = tk.Frame(self, bg=P["SURFACE"], highlightthickness=0)
         self._btn_row.pack(fill="x", padx=8, pady=(0, 8))
+        self._btn_add  = self._mk_btn(self._btn_row, self._add,       P["BTN_GREEN"])
         self._btn_up   = self._mk_btn(self._btn_row, self._move_up,   P["ACCENT"])
         self._btn_down = self._mk_btn(self._btn_row, self._move_down, P["ACCENT"])
         self._btn_rem  = self._mk_btn(self._btn_row, self._remove,    "#E05252")
@@ -264,6 +271,7 @@ class DragListbox(tk.Frame):
     def update_lang(self):
         S = self._get_S()
         self._hdr_lbl.config(text=S["list_hdr"])
+        self._btn_add.config(text=S["btn_add"])
         self._btn_up.config(text=S["btn_up"])
         self._btn_down.config(text=S["btn_down"])
         self._btn_rem.config(text=S["btn_remove"])
@@ -282,6 +290,7 @@ class DragListbox(tk.Frame):
         self.lb.config(bg=P["LB_BG"], fg=P["LB_FG"],
                        selectbackground=P["SELECT_BG"],
                        selectforeground=P["SELECT_FG"])
+        self._btn_add.config(bg=P["BTN_GREEN"])
         self._btn_up.config(bg=P["ACCENT"], activebackground=P["ACCENT2"])
         self._btn_down.config(bg=P["ACCENT"], activebackground=P["ACCENT2"])
 
@@ -307,6 +316,10 @@ class DragListbox(tk.Frame):
         n = self.lb.size()
         self._count_lbl.config(
             text=self._get_S()["files_count"].format(n=n))
+
+    def _add(self):
+        if self._on_add:
+            self._on_add()
 
     def _move_up(self):
         sel = self.lb.curselection()
@@ -347,7 +360,7 @@ class App(tk.Tk):
         self._load_config()
 
         self.geometry("800x700")
-        self.minsize(800, 580)
+        self.minsize(800, 680)
         self.maxsize(800, 4096)
         self.configure(bg=self.P["BG"])
         self._style()
@@ -369,6 +382,8 @@ class App(tk.Tk):
     def _load_config(self):
         cfg = configparser.ConfigParser()
         path = _config_path()
+        self._last_in_dir  = ""
+        self._last_out_dir = ""
         try:
             cfg.read(path, encoding="utf-8")
             sec = cfg["settings"]
@@ -384,6 +399,8 @@ class App(tk.Tk):
             self._cfg_page        = sec.get("page_size", "")
             self._cfg_orientation = sec.get("orientation", "Portrait")
             self._cfg_one_per     = sec.getboolean("one_per_page", True)
+            self._last_in_dir     = sec.get("last_input_dir", "")
+            self._last_out_dir    = sec.get("last_output_dir", "")
         except Exception:
             self._cfg_quality     = 85
             self._cfg_margin      = 20
@@ -401,6 +418,8 @@ class App(tk.Tk):
             "page_size":    self.page_var.get(),
             "orientation":  self.orient_var.get(),
             "one_per_page": str(self.one_per_page.get()),
+            "last_input_dir":  self._last_in_dir,
+            "last_output_dir": self._last_out_dir,
         }
         try:
             with open(_config_path(), "w", encoding="utf-8") as f:
@@ -447,7 +466,8 @@ class App(tk.Tk):
         self._build_options(self._left)
 
         self.file_list = DragListbox(
-            self._center, get_S=lambda: self.S, get_P=lambda: self.P)
+            self._center, get_S=lambda: self.S, get_P=lambda: self.P,
+            on_add=self._add_images)
         self.file_list.pack(side="left", fill="both", expand=True)
 
         self._build_footer()
@@ -577,13 +597,6 @@ class App(tk.Tk):
             font=("Segoe UI", 9))
         self._cb_one_per_page.pack(anchor="w", padx=14)
 
-        sep()
-        self._btn_add = tk.Button(
-            parent, command=self._add_images,
-            bg=P["ACCENT"], fg="white", font=("Segoe UI", 9, "bold"),
-            relief="flat", bd=0, pady=8, cursor="hand2",
-            activebackground=P["ACCENT2"], activeforeground="white")
-        self._btn_add.pack(fill="x", padx=14, pady=(4, 14))
 
     # ── footer ───────────────────────────────────────────────────────────────
     def _build_footer(self):
@@ -645,6 +658,7 @@ class App(tk.Tk):
         self._lbl_credits.pack(side="right")
 
         self._last_output = ""
+        self._job_from_button = False   # True only after one of the 4 action buttons is clicked
 
     # ── theme toggle & apply ──────────────────────────────────────────────────
     def _toggle_theme(self):
@@ -712,7 +726,6 @@ class App(tk.Tk):
         self._lbl_options_hdr.config(fg=P["TEXT"])
         self.qual_lbl.config(bg=P["SURFACE"], fg=P["ACCENT2"])
         self.marg_lbl.config(bg=P["SURFACE"], fg=P["ACCENT2"])
-        self._btn_add.config(bg=P["ACCENT"], activebackground=P["ACCENT2"])
 
         # footer
         self._foot.config(bg=P["SURFACE"])
@@ -757,7 +770,6 @@ class App(tk.Tk):
         self._lbl_jpeg_quality.config(text=S["jpeg_quality_lbl"])
         self._lbl_margin.config(text=S["margin_lbl"])
         self._cb_one_per_page.config(text=S["one_per_page"])
-        self._btn_add.config(text=S["add_images_btn"])
 
         self.file_list.update_lang()
 
@@ -788,20 +800,57 @@ class App(tk.Tk):
                 ("Images / Imagens",
                  "*.png *.jpg *.jpeg *.bmp *.gif *.tiff *.tif *.webp"),
                 ("All / Todos", "*.*"),
-            ])
+            ],
+            **self._dlg_kw("in"))
         if paths:
-            self.file_list.add(paths)
+            self._remember_dir("in", paths[0])
+            added = self.file_list.add(paths)
+            # Selecting files never starts anything: just tell the user what to do next.
+            self.prog_lbl.config(
+                text=self.S["files_added"].format(n=added), fg=self.P["TEXT_DIM"])
+
+    # ── remembered folders ────────────────────────────────────────────────────
+    def _dlg_kw(self, kind):
+        """initialdir kwargs for file dialogs. kind: 'in' (images) or 'out' (destination)."""
+        d = self._last_in_dir if kind == "in" else (self._last_out_dir or self._last_in_dir)
+        return {"initialdir": d} if d and os.path.isdir(d) else {}
+
+    def _remember_dir(self, kind, path):
+        """Remember the folder of `path` (file or folder) and persist it silently."""
+        if not path:
+            return
+        folder = path if os.path.isdir(path) else os.path.dirname(path)
+        if not folder or not os.path.isdir(folder):
+            return
+        if kind == "in":
+            self._last_in_dir = folder
+        else:
+            self._last_out_dir = folder
+        self._save_config()
 
     def _open_output_dir(self):
         path = self._last_output or os.path.expanduser("~")
         folder = os.path.dirname(path) if os.path.isfile(path) else path
-        if os.path.isdir(folder):
+        if not os.path.isdir(folder):
+            return
+        try:
             if sys.platform == "win32":
                 os.startfile(folder)
             elif sys.platform == "darwin":
-                os.system(f'open "{folder}"')
+                subprocess.Popen(["open", folder])
             else:
-                os.system(f'xdg-open "{folder}"')
+                subprocess.Popen(["xdg-open", folder])
+        except Exception:
+            pass
+
+    def _notify_done(self, title, message):
+        """Show the success dialog, then open the output folder automatically
+        (only when the job was started by one of the 4 action buttons)."""
+        started_by_button = self._job_from_button
+        self._job_from_button = False
+        messagebox.showinfo(title, message)
+        if started_by_button:
+            self._open_output_dir()
 
     def _require_images(self, action_key="btn_convert"):
         images = self.file_list.get_all()
@@ -833,9 +882,12 @@ class App(tk.Tk):
         if not pngs:
             messagebox.showwarning(self.S["warn_title"], self.S["warn_no_png"])
             return
-        out_dir = filedialog.askdirectory(title=self.S["dlg_jpg_dest"])
+        out_dir = filedialog.askdirectory(
+            title=self.S["dlg_jpg_dest"], **self._dlg_kw("out"))
         if not out_dir:
             return
+        self._remember_dir("out", out_dir)
+        self._job_from_button = True
         threading.Thread(target=self._do_png_to_jpg,
                          args=(pngs, out_dir), daemon=True).start()
 
@@ -857,7 +909,7 @@ class App(tk.Tk):
             self._last_output = out_dir
             self.after(0, lambda: self.output_lbl.config(
                 text=S["out_jpg"].format(n=total, folder=out_dir), fg=self.P["SUCCESS"]))
-            self.after(0, lambda: messagebox.showinfo(
+            self.after(0, lambda: self._notify_done(
                 S["success_title"],
                 S["success_jpg"].format(n=total, folder=out_dir)))
         except Exception as e:
@@ -878,9 +930,12 @@ class App(tk.Tk):
             return
         out_path = filedialog.asksaveasfilename(
             defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
-            title=self.S["dlg_pdf_comp"], initialfile="Output.pdf")
+            title=self.S["dlg_pdf_comp"], initialfile="Output.pdf",
+            **self._dlg_kw("out"))
         if not out_path:
             return
+        self._remember_dir("out", out_path)
+        self._job_from_button = True
         threading.Thread(target=self._do_convert_via_jpg,
                          args=(images, out_path), daemon=True).start()
 
@@ -917,7 +972,7 @@ class App(tk.Tk):
             self.after(0, lambda: self.progress.config(value=100))
             self.after(0, lambda: self.prog_lbl.config(
                 text=S["prog_done"].format(n=total, name=fname), fg=self.P["SUCCESS"]))
-            self.after(0, lambda: messagebox.showinfo(
+            self.after(0, lambda: self._notify_done(
                 S["success_title"],
                 S["success_pdf_jpg"].format(path=out_path)))
         except Exception as e:
@@ -936,9 +991,12 @@ class App(tk.Tk):
         images = self._require_images("btn_each_pdf")
         if not images:
             return
-        out_dir = filedialog.askdirectory(title=self.S["dlg_each_dest"])
+        out_dir = filedialog.askdirectory(
+            title=self.S["dlg_each_dest"], **self._dlg_kw("out"))
         if not out_dir:
             return
+        self._remember_dir("out", out_dir)
+        self._job_from_button = True
         threading.Thread(target=self._do_convert_each,
                          args=(images, out_dir), daemon=True).start()
 
@@ -963,7 +1021,7 @@ class App(tk.Tk):
             self._last_output = out_dir
             self.after(0, lambda: self.output_lbl.config(
                 text=S["out_each"].format(n=total, folder=out_dir), fg=self.P["SUCCESS"]))
-            self.after(0, lambda: messagebox.showinfo(
+            self.after(0, lambda: self._notify_done(
                 S["success_title"],
                 S["success_each"].format(n=total, folder=out_dir)))
         except Exception as e:
@@ -984,9 +1042,12 @@ class App(tk.Tk):
             return
         out_path = filedialog.asksaveasfilename(
             defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
-            title=self.S["dlg_pdf_save"], initialfile="Output.pdf")
+            title=self.S["dlg_pdf_save"], initialfile="Output.pdf",
+            **self._dlg_kw("out"))
         if not out_path:
             return
+        self._remember_dir("out", out_path)
+        self._job_from_button = True
         threading.Thread(target=self._do_convert,
                          args=(images, out_path), daemon=True).start()
 
@@ -998,7 +1059,7 @@ class App(tk.Tk):
             fname = os.path.basename(out_path)
             self.after(0, lambda: self.output_lbl.config(
                 text=self.S["out_pdf"].format(name=fname), fg=self.P["SUCCESS"]))
-            self.after(0, lambda: messagebox.showinfo(
+            self.after(0, lambda: self._notify_done(
                 self.S["success_title"],
                 self.S["success_pdf"].format(path=out_path)))
         except Exception as e:
